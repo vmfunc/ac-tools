@@ -143,6 +143,10 @@ bool remap_ac_regions(HANDLE process, std::span<const MEMORY_BASIC_INFORMATION> 
   bool success = true;
 
   for (const auto& region : regions) {
+    if (region.Protect & PAGE_GUARD || region.Protect & PAGE_NOACCESS) {
+      continue;
+    }
+
     LARGE_INTEGER section_size{.QuadPart = static_cast<LONGLONG>(region.RegionSize)};
     auto* base_address = region.AllocationBase;
     auto section_data = std::make_unique<char[]>(region.RegionSize);
