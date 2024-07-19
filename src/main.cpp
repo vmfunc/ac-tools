@@ -70,7 +70,7 @@ NTSYSCALLAPI NTSTATUS NTAPI NtResumeProcess(
 namespace {
 
 HANDLE open_process(std::wstring_view process_name) {
-  constexpr auto initial_buffer_length = 1024UZ;
+  constexpr SIZE_T initial_buffer_length = 1024;
   constexpr auto info_length_mismatch = static_cast<NTSTATUS>(0xc0000004);
 
   auto system_info_buffer = std::make_unique<char[]>(initial_buffer_length);
@@ -140,46 +140,52 @@ bool remap_ac_regions(HANDLE process, std::span<const MEMORY_BASIC_INFORMATION> 
   if (!NT_SUCCESS(NtSuspendProcess(process)))
     return false;
 
+  bool success = true;
+
   for (const auto& region : regions) {
     LARGE_INTEGER section_size{.QuadPart = static_cast<LONGLONG>(region.RegionSize)};
-
-    auto* section_handle = INVALID_HANDLE_VALUE;
     auto* base_address = region.AllocationBase;
     auto section_data = std::make_unique<char[]>(region.RegionSize);
-    auto bytes_read = 0UZ;
+    SIZE_T bytes_read = 0;
+    HANDLE section_handle = INVALID_HANDLE_VALUE;
 
     if (!ReadProcessMemory(process, base_address, section_data.get(), region.RegionSize, nullptr)) {
-      NtResumeProcess(process);
-      return false;
+      success = false;
+      break;
     }
 
-    if (!NT_SUCCESS(NtCreateSection(&section_handle, SECTION_ALL_ACCESS, 0, &section_size, PAGE_EXECUTE_READWRITE, SEC_COMMIT, 0))) {
-      NtResumeProcess(process);
-      return false;
+    if (!NT_SUCCESS(
+          NtCreateSection(&section_handle, SECTION_MAP_READ | SECTION_MAP_WRITE, nullptr, &section_size, PAGE_READWRITE, SEC_COMMIT, nullptr))) {
+      success = false;
+      break;
     }
 
     if (!NT_SUCCESS(ZwUnmapViewOfSection(process, base_address))) {
+      success = false;
       NtClose(section_handle);
-      NtResumeProcess(process);
-      return false;
+      break;
     }
 
-    if (!NT_SUCCESS(ZwMapViewOfSection(section_handle, process, &base_address, 0, 0, 0, &bytes_read, 2, 0, PAGE_EXECUTE_READWRITE))) {
+    if (!NT_SUCCESS(ZwMapViewOfSection(section_handle, process, &base_address, 0, 0, 0, &bytes_read, 1, 0, PAGE_READWRITE))) {
+      success = false;
       NtClose(section_handle);
-      NtResumeProcess(process);
-      return false;
+      break;
     }
 
     if (!WriteProcessMemory(process, base_address, section_data.get(), region.RegionSize, &bytes_read)) {
+      success = false;
       NtClose(section_handle);
-      NtResumeProcess(process);
-      return false;
+      break;
     }
 
     NtClose(section_handle);
   }
 
-  return NT_SUCCESS(NtResumeProcess(process));
+  if (success)
+    return NT_SUCCESS(NtResumeProcess(process));
+
+  NtResumeProcess(process);
+  return false;
 }
 
 bool dump_ac_module(const std::filesystem::path& output, HANDLE process, std::span<const MEMORY_BASIC_INFORMATION> regions) {
