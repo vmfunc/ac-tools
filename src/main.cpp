@@ -154,8 +154,9 @@ bool remap_ac_regions(HANDLE process, std::span<const MEMORY_BASIC_INFORMATION> 
       break;
     }
 
-    if (!NT_SUCCESS(
-          NtCreateSection(&section_handle, SECTION_MAP_READ | SECTION_MAP_WRITE, nullptr, &section_size, PAGE_READWRITE, SEC_COMMIT, nullptr))) {
+    if (!NT_SUCCESS(NtCreateSection(
+          &section_handle, SECTION_MAP_READ | SECTION_MAP_WRITE | SECTION_MAP_EXECUTE, nullptr, &section_size, PAGE_READWRITE, SEC_COMMIT,
+          nullptr))) {
       success = false;
       break;
     }
