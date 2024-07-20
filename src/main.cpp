@@ -18,6 +18,8 @@
 #include <string_view>
 #include <vector>
 
+#define SEC_NO_CHANGE 0x00400000
+
 // clang-format off
 
 extern "C" {
@@ -121,7 +123,7 @@ std::vector<MEMORY_BASIC_INFORMATION> find_ac_regions(HANDLE process) {
     if (inf.Type != MEM_MAPPED)
       continue;
 
-    if (inf.Protect == PAGE_EXECUTE || inf.Protect == PAGE_EXECUTE_READWRITE) {
+    if (inf.Protect == PAGE_EXECUTE) {
       result.push_back(inf);
       if (lo_region == 0) {
         lo_region = i;
@@ -149,6 +151,7 @@ bool remap_ac_regions(HANDLE process, std::span<const MEMORY_BASIC_INFORMATION> 
 
     LARGE_INTEGER section_size{.QuadPart = static_cast<LONGLONG>(region.RegionSize)};
     auto* base_address = region.AllocationBase;
+    void* address = 0;
     auto section_data = std::make_unique<char[]>(region.RegionSize);
     SIZE_T bytes_read = 0;
     HANDLE section_handle = INVALID_HANDLE_VALUE;
@@ -159,7 +162,7 @@ bool remap_ac_regions(HANDLE process, std::span<const MEMORY_BASIC_INFORMATION> 
     }
 
     if (!NT_SUCCESS(NtCreateSection(
-          &section_handle, SECTION_MAP_READ | SECTION_MAP_WRITE | SECTION_MAP_EXECUTE, nullptr, &section_size, PAGE_READWRITE, SEC_COMMIT,
+          &section_handle, SECTION_ALL_ACCESS, nullptr, &section_size, PAGE_EXECUTE_READWRITE, SEC_COMMIT | SEC_NO_CHANGE,
           nullptr))) {
       success = false;
       break;
@@ -171,13 +174,25 @@ bool remap_ac_regions(HANDLE process, std::span<const MEMORY_BASIC_INFORMATION> 
       break;
     }
 
-    if (!NT_SUCCESS(ZwMapViewOfSection(section_handle, process, &base_address, 0, 0, 0, &bytes_read, 1, 0, PAGE_READWRITE))) {
+    if (!NT_SUCCESS(ZwMapViewOfSection(section_handle, process, &address, 0, 0, 0, &bytes_read, 1, 0, PAGE_EXECUTE_READWRITE))) {
       success = false;
       NtClose(section_handle);
       break;
     }
 
-    if (!WriteProcessMemory(process, base_address, section_data.get(), region.RegionSize, &bytes_read)) {
+    if (!WriteProcessMemory(process, address, section_data.get(), region.RegionSize, &bytes_read)) {
+      success = false;
+      NtClose(section_handle);
+      break;
+    }
+
+    if (!NT_SUCCESS(ZwUnmapViewOfSection(process, address))) {
+      success = false;
+      NtClose(section_handle);
+      break;
+    }
+
+    if (!NT_SUCCESS(ZwMapViewOfSection(section_handle, process, &base_address, 0, 0, 0, &bytes_read, 1, SEC_NO_CHANGE, PAGE_EXECUTE))) {
       success = false;
       NtClose(section_handle);
       break;
