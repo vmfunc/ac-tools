@@ -145,7 +145,10 @@ bool remap_ac_regions(HANDLE process, std::span<const MEMORY_BASIC_INFORMATION> 
   bool success = true;
 
   for (const auto& region : regions) {
+    std::println("Remapping region at {:#x}", (uintptr_t)region.BaseAddress);
+
     if (region.Protect & PAGE_GUARD || region.Protect & PAGE_NOACCESS) {
+      std::println("Skipping region at {:#x} due to protected page", (uintptr_t)region.BaseAddress);
       continue;
     }
 
@@ -313,6 +316,8 @@ int main(int argc, const char* argv[]) {
     std::println(stderr, "{} <output>", argv[0]);
     return EXIT_FAILURE;
   }
+
+  std::println("L9 UNDETECTED 我是弱智 osu!auth 旁路 2024 无病毒");
 
   auto* handle = open_process(L"osu!.exe");
 
