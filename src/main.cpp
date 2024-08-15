@@ -3,6 +3,7 @@
  * - Locates detours.
  * - Remaps and unprotects osu!ac's regions.
  * - Dumps a PE image representing the mapped osu!ac.
+ * - Copyright 2024 kat (pushfq), Ashley Jessin (vmfunc)
  */
 
 #include <Windows.h>
